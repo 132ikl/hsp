@@ -1,112 +1,81 @@
 #!/usr/bin/env bash
+# Proof-of-concept HSP server in Bash
+
 set -euo pipefail
+source jsonrpc.bash
+source util.bash
 
-# get JSON field, returning null normally
-# params: json, field
-try_get_field() {
-    echo "$1" | jq --arg "key" "$2" '.[$key]' 2>&- || err_parse
-}
+TMPDIR="$(create_tmpdir)"
+INNER_PID=""
 
-# get JSON field, returning err_invalid_request on null
-# params: json, field, err_id
-get_field() {
-    local field
-    field="$(try_get_field "$1" "$2")" || return "$?"
-    echo "$field" | non-null || err_invalid_request "$3"
-}
+trap cleanup 0 1 2 3 6
 
-get_str_field() {
-    local field
-    field="$(get_field "$1" "$2" "$3")" || return "$?"
-    echo "$field" | jq -r
-}
-
-# set JSON(-RPC) key value pair with json argument
-kv() {
-    jq --argjson val "$2" ".$1=\$val"
-}
-
-# set JSON(-RPC) key value pair with string argument
-kv_str() {
-    jq --arg val "$2" ".$1=\$val"
-}
-
-non-null() {
-    local input
-    input="$(cat)"
-    echo -n "$input"
-    test "$input" != "null"
-}
-
-response_header() {
-    jq -n '.jsonrpc="2.0"'
-}
-
-response_ok() {
-    response_header |
-        kv id "$1" |
-        kv result "$2" >&3
-}
-
-err_invalid_request() {
-    response_header |
-        kv id "$1" |
-        kv error.code -32600 |
-        kv_str error.message 'Invalid request' >&3
-    return 1
-}
-
-err_parse() {
-    response_header |
-        kv id null |
-        kv_str error.message "Parse error" |
-        kv error.code -32700 >&3
-    return 1
-}
-
-err_not_found() {
-    response_header |
-        kv id "$1" |
-        kv_str error.message "Method not found" |
-        kv error.code -32601 >&3
-    return 1
-}
-
-err_invalid_params() {
-    response_header |
-        kv id "$1" |
-        kv_str error.message "Invalid params" |
-        kv error.code -32602 >&3
-    return 1
-}
-
-# params: id, params
+# params: id, req_json
 handle_echo() {
     local params
-    params="$(try_get_field "$2" "params")" || return 1
-    params="$(echo "$params" | non-null)" || {
-        err_invalid_params "$2"
-        return 1
-    }
+    params="$(get_param "$@")" || return 1
     response_ok "$id" "$params"
 }
 
+# params: id, req_json
+handle_eval() {
+    local params
+    params="$(get_param "$@")" || return 1
+    params="$(into_string "$params")" || {
+        err_invalid_params
+        return 1
+    }
+    printf "%s\0" "$params" >&10
+    response_ok "$id" '"command ran"'
+}
+
+# params: req_json
 parse_command() {
     local method id
-    id="$(get_field "$1" id null)" || return 1
-    method="$(get_str_field "$1" method "$id")" || return 1
+    id="$(get_field null "$1" id)" || return 1
+    method="$(get_str_field "$id" "$1" method)" || return 1
 
     case "$method" in
     "echo") handle_echo "$id" "$1" ;;
+    "eval") handle_eval "$id" "$1" ;;
+    # TODO: fix hang
+    "stdout") cat <&11 ;;
     *) err_not_found "$id" ;;
     esac
 }
 
+# This function uses the `script` command (not part of coreutils, but widely available since 3BSD)
+# to create a PTY for the actual shell process. Therefore, we can run the shell interactively
+# even though we're wrapping the input and output of the shell.
+setup_inner_shell() {
+    # create FIFOs to communicate with inner shell
+    local stdin stdout stderr
+    stdin="$TMPDIR/stdin"
+    stdout="$TMPDIR/stdout"
+    stderr="$TMPDIR/stderr"
+    mkfifo -m 700 "$stdin" "$stdout" "$stderr"
+
+    local inner_path
+    inner_path="$(dirname "$0")/inner.bash"
+
+    # `script` sends stdout and stderr to the same PTY.
+    # we want stderr in a separate stream, so we will redirect within the command
+    # this does unfortunately mean isatty(2) = 0, but hopefully this isn't a big issue or we can work around?
+    script -qc "bash -il \"$inner_path\" 2>\"$stderr\"" /dev/null <"$stdin" >"$stdout" &
+    INNER_PID="$!"
+
+    # open file descriptors after starting `script` so inner shell doesn't inherit them
+    # open with <> to avoid hanging, then switch to proper directions
+    exec 10<>"$stdin" 11<>"$stdout" 12<>"$stderr"
+}
+
 main() {
     exec 3>&1 # for error reporting
+    setup_inner_shell
     while IFS='' read -r -d $'\0' object; do
         parse_command "$object" || true
     done
+    sleep 3
 }
 
 main
