@@ -1,18 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# returns the first argument if the pipeline is empty,
-# otherwise passes along the pipeline
-default() {
-    local first rest
-    if [ ! -t 0 ] && IFS='' read -d '' -r -n 1 first; then
-        echo "$first"
-        cat
-    else
-        echo "$1"
-    fi
-}
-
 # get JSON field, returning null normally
 # params: json, field
 try_get_field() {
