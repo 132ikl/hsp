@@ -5,7 +5,7 @@ let commands = [
   {id: 0}, # invalid request (no method)
   {method: "fake", id: 1}, # method not found
   {method: "echo", params: "hello", id: 2}, # returns hello
-  {method: "eval", params: "ls --color=auto /home/rose", id: 3},
+  {method: "eval", params: "ls --color=auto", id: 3},
 ]
 
 def handle-response [] {
