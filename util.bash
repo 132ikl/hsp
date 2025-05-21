@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Server utilities
 
 error() {
     echo "Error: $1" >&2
@@ -10,10 +11,10 @@ cleanup() {
     trap : 0 1 2 3 6
 
     if [[ -n "$INNER_PID" ]] && ps "$INNER_PID" >/dev/null 2>&1; then
-        kill "$INNER_PID"
+        kill -INT "$INNER_PID"
         # prevent `script` from writing to terminal
         # this only seems to really work for normal exits
-        kill -STOP "$INNER_PID"
+        # kill -STOP "$INNER_PID"
     fi
 
     # avoid rm -rf just to be safe

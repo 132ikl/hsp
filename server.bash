@@ -4,6 +4,7 @@
 set -euo pipefail
 source jsonrpc.bash
 source util.bash
+source common.bash
 
 TMPDIR="$(create_tmpdir)"
 INNER_PID=""
@@ -26,7 +27,42 @@ handle_eval() {
         return 1
     }
     printf "%s\0" "$params" >&10
-    response_ok "$id" '"command ran"'
+    # response_ok "$id" '"command ran"'
+    consume_stdout "$1"
+}
+
+# consume one byte from inner stdout and encode in hex
+consume_byte() {
+    local byte
+    # od -v -t x1 -w1 <&11 | IFS='' read -r -N 2 byte || return 1
+    # adapted from https://www.etalabs.net/sh_tricks.html
+    read -r _ byte <<EOF
+$(dd bs=1 count=1 status=none <&11 | od -t x1)
+EOF
+    printf "%s" "$byte"
+}
+
+# consume stdout until end of command
+# (end of command detected by shoddily parsing OSC 133;D)
+# splits into roughly 500 byte chunks
+# this can be optimized
+# params: id
+consume_stdout() {
+    local buffer=""
+    while buffer="${buffer}$(consume_byte)"; do
+        # we have OSC 133;D BEL (TODO also handle ST)
+        [[ "$buffer" = *1b5d3133333b4407 ]] && {
+            response_stdout "$1" "${buffer:0:-16}" true
+            return
+        }
+        [[ "${buffer: -14}" = *1b* ]] && continue # we *might* have osc 133, so continue
+        [[ "${#buffer}" -le 1000 ]] && continue   # buffer limit not reached yet
+
+        # send this chunk
+        response_stdout "$1" "$buffer" false
+        buffer=""
+    done
+    error "Reached EOF while consuming stdout"
 }
 
 # params: req_json
@@ -38,8 +74,6 @@ parse_command() {
     case "$method" in
     "echo") handle_echo "$id" "$1" ;;
     "eval") handle_eval "$id" "$1" ;;
-    # TODO: fix hang
-    "stdout") cat <&11 ;;
     *) err_not_found "$id" ;;
     esac
 }

@@ -54,7 +54,7 @@ get_param() {
 
 # set JSON(-RPC) key value pair with json argument
 kv() {
-    jq --argjson val "$2" ".$1=\$val"
+    jq --raw-output0 --argjson val "$2" ".$1=\$val"
 }
 
 # set JSON(-RPC) key value pair with string argument
@@ -70,13 +70,21 @@ non-null() {
 }
 
 response_header() {
-    jq -n '.jsonrpc="2.0"'
+    jq --raw-output0 -n '.jsonrpc="2.0"'
 }
 
 response_ok() {
     response_header |
         kv id "$1" |
         kv result "$2" >&3
+}
+
+# params: id, stdout, done
+response_stdout() {
+    response_header |
+        kv id "$1" |
+        kv_str result.stdout "$2" |
+        kv result.done "$3" >&3
 }
 
 err_invalid_request() {
