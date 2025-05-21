@@ -54,7 +54,7 @@ get_param() {
 
 # set JSON(-RPC) key value pair with json argument
 kv() {
-    jq --raw-output0 --argjson val "$2" ".$1=\$val"
+    jq -r --argjson val "$2" ".$1=\$val"
 }
 
 # set JSON(-RPC) key value pair with string argument
@@ -70,13 +70,14 @@ non-null() {
 }
 
 response_header() {
-    jq --raw-output0 -n '.jsonrpc="2.0"'
+    jq -r -n '.jsonrpc="2.0"'
 }
 
 response_ok() {
     response_header |
         kv id "$1" |
         kv result "$2" >&3
+    printf "\0" >&3
 }
 
 # params: id, stdout, done
@@ -85,6 +86,7 @@ response_stdout() {
         kv id "$1" |
         kv_str result.stdout "$2" |
         kv result.done "$3" >&3
+    printf "\0" >&3
 }
 
 err_invalid_request() {
@@ -92,6 +94,7 @@ err_invalid_request() {
         kv id "$1" |
         kv error.code -32600 |
         kv_str error.message 'Invalid request' >&3
+    printf "\0" >&3
     return 1
 }
 
@@ -100,6 +103,7 @@ err_parse() {
         kv id null |
         kv_str error.message "Parse error" |
         kv error.code -32700 >&3
+    printf "\0" >&3
     return 1
 }
 
@@ -108,6 +112,7 @@ err_not_found() {
         kv id "$1" |
         kv_str error.message "Method not found" |
         kv error.code -32601 >&3
+    printf "\0" >&3
     return 1
 }
 
@@ -116,5 +121,6 @@ err_invalid_params() {
         kv id "$1" |
         kv_str error.message "Invalid params" |
         kv error.code -32602 >&3
+    printf "\0" >&3
     return 1
 }
