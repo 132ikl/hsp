@@ -99,7 +99,7 @@ setup_inner_shell() {
     INNER_PID="$!"
 
     # open file descriptors after starting `script` so inner shell doesn't inherit them
-    # open with <> to avoid hanging, then switch to proper directions
+    # open with <> to avoid hanging
     exec 10<>"$stdin" 11<>"$stdout" 12<>"$stderr"
 }
 
